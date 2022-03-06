@@ -14,6 +14,30 @@
 
 static const char *TAG = "BLE_CODELOCK";
 
+#define MAX_CODE_LENGTH 24
+// code and input_code are not null terminated
+static char code[MAX_CODE_LENGTH];
+static size_t code_length;
+
+static void (*on_success_callback) (void) = NULL;
+static void (*on_failure_callback) (void) = NULL;
+
+// Setters
+void ble_codelock_set_code(char *code_p)
+{
+    // Generating code
+    code_length = strlen(code_p);
+    strncpy(code, code_p, code_length);
+}
+void ble_codelock_set_on_success_callback(void (*callback) (void))
+{
+    on_success_callback = callback;
+}
+void ble_codelock_set_on_failure_callback(void (*callback) (void))
+{
+    on_failure_callback = callback;
+}
+
 
 static uint16_t conn_handle;
 static const char *device_name = "ble_codelock";
@@ -25,8 +49,7 @@ static uint8_t addr_type;
 /**
  * Utility function to log an array of bytes.
  */
-void
-print_bytes(const uint8_t *bytes, int len)
+void print_bytes(const uint8_t *bytes, int len)
 {
     int i;
     for (i = 0; i < len; i++) {
@@ -34,8 +57,7 @@ print_bytes(const uint8_t *bytes, int len)
     }
 }
 
-void
-print_addr(const void *addr)
+void print_addr(const void *addr)
 {
     const uint8_t *u8p;
 
@@ -50,8 +72,7 @@ print_addr(const void *addr)
  *     o General discoverable mode
  *     o Undirected connectable mode
  */
-static void
-advertise(void)
+static void advertise(void)
 {
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
@@ -103,8 +124,7 @@ advertise(void)
     }
 }
 
-static int
-gap_event(struct ble_gap_event *event, void *arg)
+static int gap_event(struct ble_gap_event *event, void *arg)
 {
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
@@ -148,8 +168,7 @@ gap_event(struct ble_gap_event *event, void *arg)
     return 0;
 }
 
-static void
-on_sync(void)
+static void on_sync(void)
 {
     int rc;
 
@@ -167,8 +186,7 @@ on_sync(void)
     advertise();
 }
 
-static void
-on_reset(int reason)
+static void on_reset(int reason)
 {
     MODLOG_DFLT(ERROR, "Resetting state; reason=%d\n", reason);
 }
@@ -182,8 +200,24 @@ void host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
-void init_ble_codelock(void)
+
+void on_code_received(char *received_code, uint16_t len) {
+    ESP_LOGI(TAG, "received_code = %s, len = %u", received_code, len);
+    if (strncmp(code, received_code, code_length) == 0) {
+        if (on_success_callback)
+            on_success_callback();
+    }
+    else {
+        if (on_failure_callback)
+            on_failure_callback();
+    }
+}
+
+
+void init_ble_codelock(char *code)
 {
+    ble_codelock_set_code(code);
+
     int rc;
 
     ESP_ERROR_CHECK(esp_nimble_hci_and_controller_init());

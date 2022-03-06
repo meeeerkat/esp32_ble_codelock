@@ -1,29 +1,44 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include "esp_log.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "gatt_svr.h"
 
-static const char *manuf_name = "Apache Mynewt ESP32 devkitC";
-static const char *model_num = "Mynewt HR Sensor demo";
 
-#define GATT_SERVICE_UUID    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00
-#define GATT_CODE_UUID                      0x2AF6 // 24 bytes fixed string
+static const char *manuf_name = "Apache Mynewt ESP32 devkitC";
+static const char *model_num = "";
+
+
+/* 5c3a659e-897e-45e1-b016-007107c96df6 */
+static const ble_uuid128_t GATT_SERVICE_UUID =
+    BLE_UUID128_INIT(0xf6, 0x6d, 0xc9, 0x07, 0x71, 0x00, 0x16, 0xb0,
+                     0xe1, 0x45, 0x7e, 0x89, 0x9e, 0x65, 0x3a, 0x5c);
+static const ble_uuid16_t GATT_CHARACTERISTIC_CODE_UUID =
+    BLE_UUID16_INIT(0x2af6);
+
+/* 5c3a659e-897e-45e1-b016-007107c96df7
+static const ble_uuid128_t GATT_CHARACTERISTIC_CODE_UUID =
+    BLE_UUID128_INIT(0xf7, 0x6d, 0xc9, 0x07, 0x71, 0x00, 0x16, 0xb0,
+                     0xe1, 0x45, 0x7e, 0x89, 0x9e, 0x65, 0x3a, 0x5c);
+                     */
+//#define GATT_SERVICE_UUID    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00
+//#define GATT_CHARACTERISTIC_CODE_UUID                      0x2AF6 // 24 bytes fixed string
+#define GATT_CHARACTERISTIC_CODE_LENGTH     24
 #define GATT_DEVICE_INFO_UUID               0x180A
 #define GATT_MANUFACTURER_NAME_UUID         0x2A29
 #define GATT_MODEL_NUMBER_UUID              0x2A24
 
+
 uint16_t code_handle;
 
-static int
-gatt_svr_chr_access_code(uint16_t conn_handle, uint16_t attr_handle,
+static int gatt_svr_chr_access_code(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg);
 
-static int
-gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
+static int gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 
@@ -31,11 +46,11 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
     {
         // Custom service
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
-        .uuid = BLE_UUID128_DECLARE(GATT_SERVICE_UUID),
+        .uuid = &GATT_SERVICE_UUID.u,
         .characteristics = (struct ble_gatt_chr_def[])
         { {
                 // Characteristic: code
-                .uuid = BLE_UUID16_DECLARE(GATT_CODE_UUID),
+                .uuid = &(GATT_CHARACTERISTIC_CODE_UUID.u),
                 .access_cb = gatt_svr_chr_access_code,
                 .val_handle = &code_handle,
                 .flags = BLE_GATT_CHR_F_WRITE,
@@ -71,16 +86,39 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
     },
 };
 
-static int
-gatt_svr_chr_access_code(uint16_t conn_handle, uint16_t attr_handle,
+
+
+static int gatt_svr_chr_write(struct os_mbuf *om, uint16_t min_len, uint16_t max_len,
+                   void *dst, uint16_t *len)
+{
+    uint16_t om_len;
+    int rc;
+
+    om_len = OS_MBUF_PKTLEN(om);
+    if (om_len < min_len || om_len > max_len) {
+        ESP_LOGI("GATT_SVR", "NOPE: %u", om_len);
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+
+
+    rc = ble_hs_mbuf_to_flat(om, dst, max_len, len);
+    if (rc != 0) {
+        ESP_LOGI("GATT_SVR", "NOPE2: %d", rc);
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    return 0;
+}
+
+
+static char received_code[GATT_CHARACTERISTIC_CODE_LENGTH];
+static int gatt_svr_chr_access_code(uint16_t conn_handle, uint16_t attr_handle,
                                struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     /* Sensor location, set to "Chest" */
-    uint16_t uuid;
-    int rc;
 
     /*
-    uuid = ble_uuid_u16(ctxt->chr->uuid);
+    int rc;
 
     if (uuid == GATT_HRS_BODY_SENSOR_LOC_UUID) {
         rc = os_mbuf_append(ctxt->om, &body_sens_loc, sizeof(body_sens_loc));
@@ -88,14 +126,26 @@ gatt_svr_chr_access_code(uint16_t conn_handle, uint16_t attr_handle,
         return rc == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
     */
-    return 0;
+
+    int rc;
+    const ble_uuid_t *uuid = ctxt->chr->uuid;
+
+    if (ble_uuid_cmp(uuid, &(GATT_CHARACTERISTIC_CODE_UUID.u)) == 0
+            && ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint16_t len;
+        rc = gatt_svr_chr_write(ctxt->om,
+                                1,
+                                GATT_CHARACTERISTIC_CODE_LENGTH,
+                                received_code, &len);
+        on_code_received(received_code, len);
+        return rc;
+    }
 
     assert(0);
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-static int
-gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
+static int gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     uint16_t uuid;
@@ -117,8 +167,7 @@ gatt_svr_chr_access_device_info(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
-void
-gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
+void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
 {
     char buf[BLE_UUID_STR_LEN];
 
@@ -149,8 +198,7 @@ gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
     }
 }
 
-int
-gatt_svr_init(void)
+int gatt_svr_init()
 {
     int rc;
 
