@@ -8,10 +8,10 @@
 extern "C" {
 #endif
 
-extern void init_ble_codelock(char *code);
+extern int init_ble_codelock(char *code);
 
 // Setters
-extern void ble_codelock_set_code(char *code_p);
+extern int ble_codelock_set_code(char *code_p);
 extern void ble_codelock_set_on_success_callback(void (*callback) (void));
 extern void ble_codelock_set_on_failure_callback(void (*callback) (void));
 

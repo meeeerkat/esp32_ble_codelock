@@ -23,11 +23,14 @@ static void (*on_success_callback) (void) = NULL;
 static void (*on_failure_callback) (void) = NULL;
 
 // Setters
-void ble_codelock_set_code(char *code_p)
+int ble_codelock_set_code(char *code_p)
 {
-    // Generating code
-    code_length = strlen(code_p);
+    size_t new_code_length = strlen(code_p);
+    if (new_code_length > MAX_CODE_LENGTH)
+        return -1;
+    code_length = new_code_length;
     strncpy(code, code_p, code_length);
+    return 0;
 }
 void ble_codelock_set_on_success_callback(void (*callback) (void))
 {
@@ -185,9 +188,10 @@ void on_code_received(char *received_code, uint16_t len) {
 }
 
 
-void init_ble_codelock(char *code)
+int init_ble_codelock(char *code)
 {
-    ble_codelock_set_code(code);
+    if (ble_codelock_set_code(code) < 0)
+        return -1;
 
     ESP_ERROR_CHECK(esp_nimble_hci_and_controller_init());
 
@@ -205,4 +209,6 @@ void init_ble_codelock(char *code)
 
     // Start the task
     nimble_port_freertos_init(host_task);
+
+    return 0;
 }
