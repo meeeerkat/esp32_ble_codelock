@@ -1,7 +1,7 @@
 
 ## A BLE codelock component for esp32
-This component implements the behaviour of a BLE codelock.
-It currently works but has some behaviour that is mixed with the codelock component and many functions that need to be cleaned.
+This component implements the behaviour of a BLE codelock, similar in some ways to the codelock component.
+It uses ESP32's NimBLE port and implements a GATT server.
 
 ### TODO
-- Factor behaviours with codelock component if possible
+- Factor behaviours with the codelock component if possible
